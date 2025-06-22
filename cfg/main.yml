@@ -1,0 +1,52 @@
+log_dir: /var/log/cave
+serial_port: /dev/ttyUSB0
+playlist:
+  - static: video/video/back-crop.mp4
+  - intro: video/render/cave-choir-begin-crop.mp4
+    static: video/video/0-crop.mp4
+    fadeout:
+      - video: video/video/0-0-out-sound-crop.mp4
+  - intro: video/render/cave-choir-1beg-crop.mp4
+    static: video/video/1-crop.mp4
+    fadeout:
+      - before: 10.0
+        video: video/video/1-0-out-sound-crop.mp4
+      - before: 20.0
+        video: video/video/1-1-out-sound-crop.mp4
+      - video: video/video/1-2-out-sound-crop.mp4
+  - intro: video/render/cave-choir-2beg-crop.mp4
+    static: video/video/2-crop.mp4
+    fadeout:
+      - before: 10.0
+        video: video/video/2-0-out-sound-crop.mp4
+      - before: 20.0
+        video: video/video/2-1-out-sound-crop.mp4
+      - before: 30.0
+        video: video/video/2-2-out-sound-crop.mp4
+      - before: 40.0
+        video: video/video/2-3-out-sound-crop.mp4
+      - before: 60.0
+        video: video/video/2-4-out-sound-crop.mp4
+      - video: video/video/2-5-out-sound-crop.mp4
+  - intro: video/render/cave-choir-3beg-crop.mp4
+    static: video/video/3-crop.mp4
+    fadeout:
+      - before: 10.0
+        video: video/video/3-0-out-sound-crop.mp4
+      - before: 20.0
+        video: video/video/3-1-out-sound-crop.mp4
+      - before: 30.0
+        video: video/video/3-2-out-sound-crop.mp4
+      - video: video/video/3-3-out-sound-crop.mp4
+  - intro: video/render/cave-choir-4beg-crop.mp4
+    static: video/video/4-crop.mp4
+    fadeout:
+      - before: 10.0
+        video: video/video/4-0-out-sound-crop.mp4
+      - before: 20.0
+        video: video/video/4-1-out-sound-crop.mp4
+      - video: video/video/4-2-out-sound-crop.mp4
+  - intro: video/render/cave-choir-5beg-crop.mp4
+    static: video/video/5-crop.mp4
+    fadeout:
+      - video: video/video/5-0-out-sound-crop.mp4
