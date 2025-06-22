@@ -16,6 +16,7 @@ use std::env::current_dir;
 use tokio::sync::mpsc;
 use tokio_serial::SerialPortBuilderExt;
 use tokio_util::codec::{Decoder, Encoder};
+use tokio::io::AsyncWriteExt;
 
 #[derive(Debug)]
 enum Command {
@@ -101,6 +102,8 @@ async fn main() -> Result<()> {
 
     let mut port = tokio_serial::new(s.serial_port, 57600).open_native_async()?;
     port.set_exclusive(false)?;
+
+    port.flush().await?;
 
     let mut reader = LineCodec.framed(port);
 
