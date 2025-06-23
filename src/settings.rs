@@ -8,6 +8,8 @@ use serde::Deserialize;
 pub struct Settings {
     pub log_dir: String,
     pub serial_port: String,
+    pub baud_rate: usize,
+    pub sleep_timeout_sec: usize,
     pub playlist: Vec<Fragment>,
 }
 

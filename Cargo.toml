@@ -7,7 +7,6 @@ edition = "2024"
 anyhow = "1.0.98"
 bytes = "1.10.1"
 config = "0.15.11"
-crossbeam = "0.8.4"
 ftail = "0.3.0"
 futures = "0.3.31"
 libmpv = { git = "https://github.com/Robogera/libmpv-rs.git", version = "2.0.1" }

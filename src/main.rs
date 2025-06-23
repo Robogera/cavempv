@@ -2,27 +2,38 @@
 mod settings;
 use anyhow::Result;
 use anyhow::anyhow;
+use bytes::BufMut;
 use bytes::BytesMut;
 use ftail::Ftail;
+use futures::sink::SinkExt;
 use futures::stream::StreamExt;
 use libmpv::Format;
 use libmpv::events::Event;
+use libmpv::events::*;
 use libmpv::{FileState, Mpv};
 use log::{LevelFilter, error, info};
-use settings::Fragment;
-use settings::Settings;
-use std::collections::LinkedList;
-use std::env::current_dir;
-use tokio::sync::mpsc;
+use settings::{Fragment, Settings};
+use std::time::Duration;
+use std::{collections::LinkedList, env::current_dir, sync::Arc};
+use tokio::time::timeout;
+use tokio::{
+    io::AsyncWriteExt,
+    sync::{Mutex, mpsc},
+};
 use tokio_serial::SerialPortBuilderExt;
 use tokio_util::codec::{Decoder, Encoder};
-use tokio::io::AsyncWriteExt;
 
 #[derive(Debug)]
 enum Command {
     Next,
     Prev,
     Sleep,
+}
+
+#[derive(Debug)]
+enum ButtonState {
+    StartOnly,
+    Both,
 }
 
 struct LineCodec;
@@ -41,6 +52,7 @@ impl Decoder for LineCodec {
                 return match command {
                     b'n' => Ok(Some(Command::Next)),
                     b'p' => Ok(Some(Command::Prev)),
+                    b's' => Ok(Some(Command::Sleep)),
                     _ => Ok(None),
                 };
             }
@@ -49,10 +61,15 @@ impl Decoder for LineCodec {
     }
 }
 
-impl Encoder<String> for LineCodec {
+impl Encoder<ButtonState> for LineCodec {
     type Error = std::io::Error;
 
-    fn encode(&mut self, _item: String, _dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, _item: ButtonState, _dst: &mut BytesMut) -> Result<(), Self::Error> {
+        (*_dst).put_u8(match _item {
+            ButtonState::Both => b'b',
+            ButtonState::StartOnly => b'b',
+        });
+        (*_dst).put_u8(b'\n');
         Ok(())
     }
 }
@@ -70,7 +87,11 @@ impl PlaylistAdder for Mpv {
                 path,
                 "replace",
                 "0",
-                if inf_loop { "loop-file=inf" } else { "" },
+                if inf_loop {
+                    "loop-file=inf"
+                } else {
+                    "loop-file=0"
+                },
             ],
         )
         .expect("to replace");
@@ -82,7 +103,11 @@ impl PlaylistAdder for Mpv {
                 path,
                 "append-play",
                 "0",
-                if inf_loop { "loop-file=inf" } else { "" },
+                if inf_loop {
+                    "loop-file=inf"
+                } else {
+                    "loop-file=0"
+                },
             ],
         )
         .expect("to queue");
@@ -100,18 +125,60 @@ async fn main() -> Result<()> {
         .retention_days(7)
         .init()?;
 
-    let mut port = tokio_serial::new(s.serial_port, 57600).open_native_async()?;
+    let mut port = tokio_serial::new(s.serial_port, s.baud_rate as u32).open_native_async()?;
+
     port.set_exclusive(false)?;
 
     port.flush().await?;
 
-    let mut reader = LineCodec.framed(port);
+    let mut reader = Arc::new(Mutex::new(LineCodec.framed(port)));
+    let mut writer = reader.clone();
 
     let (tx, mut rx) = mpsc::channel(1);
 
-    tokio::spawn(async move {
-        let mpv = Mpv::new().expect("to start mpv");
+    let mpv = Arc::new(Mpv::new().expect("to start mpv"));
 
+    let mut mpv_arc = mpv.clone();
+
+    tokio::spawn(async move {
+        let mut ev_ctx = mpv_arc.create_event_context();
+
+        ev_ctx
+            .disable_deprecated_events()
+            .expect("to disable depreciated");
+
+        ev_ctx
+            .observe_property("filename", Format::String, 0)
+            .expect("to subscribe to file change event");
+
+        loop {
+            let maybe_filename = if let Some(Ok(Event::PropertyChange {
+                name: "filename",
+                change: PropertyData::Str(filename),
+                reply_userdata: _,
+            })) = ev_ctx.wait_event(60.)
+            {
+                info!("Filename changed: {filename}");
+                Some(filename)
+            } else {
+                None
+            };
+            if let Some(filename) = maybe_filename {
+                writer
+                    .lock()
+                    .await
+                    .send(if filename.contains("loop") {
+                        ButtonState::StartOnly
+                    } else {
+                        ButtonState::Both
+                    })
+                    .await
+                    .expect("to write to serail");
+            }
+        }
+    });
+
+    tokio::spawn(async move {
         let mut playlist = LinkedList::new();
 
         s.playlist
@@ -175,12 +242,7 @@ async fn main() -> Result<()> {
                     });
                 }
                 Command::Prev => {
-                    cursor.move_prev();
-                    cursor.index().or_else(|| {
-                        info!("Reached the start of playlist, not going further back");
-                        cursor.move_next();
-                        Some(1)
-                    });
+                    info!("Actually not moving at all");
                 }
                 Command::Sleep => {
                     info!("Moving cursor to the start");
@@ -211,11 +273,29 @@ async fn main() -> Result<()> {
         }
     });
 
-    while let Some(line_result) = reader.next().await {
-        let line = line_result?;
-        if let Err(e) = tx.send(line).await {
-            error!("Something's gone terribly wrong: {e:?}");
-            return Err(anyhow!(e));
+    loop {
+        match timeout(
+            Duration::from_secs(s.sleep_timeout_sec.try_into().unwrap()),
+            reader.lock().await.next(),
+        )
+        .await
+        {
+            Ok(Some(Ok(line))) => {
+                if let Err(e) = tx.send(line).await {
+                    error!("Something's gone terribly wrong: {e:?}");
+                    return Err(anyhow!(e));
+                }
+            }
+            Ok(Some(Err(e))) => {
+                error!("Unexpected error: {e:?}");
+            }
+            Err(_) => {
+                if let Err(e) = tx.send(Command::Sleep).await {
+                    error!("Something's gone terribly wrong: {e:?}");
+                    return Err(anyhow!(e));
+                }
+            }
+            _ => {}
         }
     }
 
