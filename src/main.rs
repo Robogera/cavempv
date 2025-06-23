@@ -190,6 +190,10 @@ async fn main() -> Result<()> {
 
         mpv.set_property("audio-device", "pipewire/combined")
             .expect("to set launch options");
+        if let Some(rotation_deg) = s.rotation_deg {
+        mpv.set_property("video-rotate", rotation_deg)
+            .expect("to set video rotation");
+        }
 
         mpv.queue(&cursor.current().unwrap().static_, true);
 

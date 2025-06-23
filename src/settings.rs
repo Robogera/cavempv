@@ -11,6 +11,7 @@ pub struct Settings {
     pub baud_rate: usize,
     pub sleep_timeout_sec: usize,
     pub playlist: Vec<Fragment>,
+    pub rotation_deg: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
